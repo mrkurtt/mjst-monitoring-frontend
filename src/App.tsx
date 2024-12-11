@@ -10,40 +10,49 @@ import { EditorsProvider } from './contexts/EditorsContext';
 import { ReviewersProvider } from './contexts/ReviewersContext';
 import { RecordProvider } from './contexts/RecordContext';
 import { DashboardProvider } from './contexts/DashboardContext';
-
 import './index.css';
+import { Toaster } from 'react-hot-toast';
 
 function App() {
-  return (
-    <RecordProvider>
-      <DashboardProvider>
-        <ReviewersProvider>
-          <EditorsProvider>
-            <Router>
-              <div className="min-h-screen">
-                <Routes>
-                  <Route path="/" element={<LandingPage />} />
-                  {/* Director routes */}
-                  <Route path="/director">
-                    <Route path="login" element={<LoginPage />} />
-                    <Route path="create-account" element={<DirectorCreateAccount />} />
-                    <Route path="dashboard" element={<DirectorsPage />} />
-                  </Route>
-                  
-                  {/* Staff routes */}
-                  <Route path="/staff">
-                    <Route path="login" element={<StaffLoginPage />} />
-                    <Route path="create-account" element={<StaffCreateAccount />} />
-                    <Route path="dashboard" element={<StaffDashboard />} />
-                  </Route>
-                </Routes>
-              </div>
-            </Router>
-          </EditorsProvider>
-        </ReviewersProvider>
-      </DashboardProvider>
-    </RecordProvider>
-  );
+	return (
+		<>
+			<Toaster position="bottom-right" />
+			<RecordProvider>
+				<DashboardProvider>
+					<ReviewersProvider>
+						<EditorsProvider>
+							<Router>
+								<div className="min-h-screen">
+									<Routes>
+										<Route path="/" element={<LandingPage />} />
+										{/* Director routes */}
+										<Route path="/director">
+											<Route path="login" element={<LoginPage />} />
+											<Route
+												path="create-account"
+												element={<DirectorCreateAccount />}
+											/>
+											<Route path="dashboard" element={<DirectorsPage />} />
+										</Route>
+
+										{/* Staff routes */}
+										<Route path="/staff">
+											<Route path="login" element={<StaffLoginPage />} />
+											<Route
+												path="create-account"
+												element={<StaffCreateAccount />}
+											/>
+											<Route path="dashboard" element={<StaffDashboard />} />
+										</Route>
+									</Routes>
+								</div>
+							</Router>
+						</EditorsProvider>
+					</ReviewersProvider>
+				</DashboardProvider>
+			</RecordProvider>
+		</>
+	);
 }
 
 export default App;
