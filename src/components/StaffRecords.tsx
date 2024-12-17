@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Eye, X, Bell } from 'lucide-react';
-import { useRecords } from '../contexts/RecordContext';
 import { Editor } from '../contexts/EditorsContext';
 import SearchBar from './SearchBar';
 import ScoresDisplay from './shared/ScoresDisplay';
@@ -25,7 +24,7 @@ interface NotificationType {
 	editorId: string;
 }
 
-interface ManuscriptDetails {
+export interface ManuscriptDetails {
 	id: string;
 	title: string;
 	authors: string;
@@ -147,11 +146,11 @@ const StaffRecords: React.FC = () => {
 		if (selectedManuscript) {
 			await updateManuscript(selectedManuscript._id, {
 				progressStatus: 'For Revision',
-				comments: revisionComment,
+				revisionComment,
 			});
 
 			await sendMail({
-				message: `<p>Hello Author, your manuscript entitled ${selectedManuscript.title} needs revision. </br>${revisionComment}</p>`,
+				message: `<p>Hello Author <br/> our manuscript entitled ${selectedManuscript.title} needs revision. <br/>Comment: ${revisionComment}</p>`,
 				recipients: [selectedManuscript.authorEmail],
 				subject: 'Manuscript Needs Revision',
 			}).then(() => {
@@ -331,7 +330,7 @@ const StaffRecords: React.FC = () => {
 		});
 
 		await sendMail({
-			message: `<p>Hello ${selectedManuscript.authors[0]}, your manuscript entitled ${selectedManuscript.title} is now in Double-Blind Stage.</p>`,
+			message: `<p>Hello ${selectedManuscript.authors[0]} <br/>Your manuscript entitled ${selectedManuscript.title} is now in Double-Blind Stage.</p>`,
 			recipients: [selectedManuscript.authorEmail],
 			subject: 'Manuscript Update: In Double-Blind Stage',
 		});
@@ -347,7 +346,7 @@ const StaffRecords: React.FC = () => {
 		}
 
 		await sendMail({
-			message: `<p>Hello Reviewer, you are assigned as Reviewer for the manuscript entitled ${selectedManuscript.title} by ${selectedManuscript.authors[0]}.</p>`,
+			message: `<p>Hello Reviewer <br/>You are assigned as Reviewer for the manuscript entitled ${selectedManuscript.title} by ${selectedManuscript.authors[0]}.</p>`,
 			recipients: reviewersEmail,
 			subject: 'Manuscript Reviewer Assignment',
 		}).then(() => {
@@ -371,10 +370,11 @@ const StaffRecords: React.FC = () => {
 			progressStatus: 'Rejected',
 			status: 'Rejected',
 			rejectReason: rejectionReason,
+			rejectDate: new Date().toISOString(),
 		});
 
 		await sendMail({
-			message: `<p>Hello Author, your manuscript entitled ${selectedManuscript.title} has been rejected. Reason: ${rejectionReason}</p>`,
+			message: `<p>Hello ${selectedManuscript.authors[0]} <br/> Your manuscript entitled ${selectedManuscript.title} has been rejected. <br/>Reason: ${rejectionReason}</p>`,
 			recipients: [selectedManuscript.authorEmail],
 			subject: 'Manuscript Rejected',
 		}).then(() => {
@@ -392,6 +392,7 @@ const StaffRecords: React.FC = () => {
 			(record: any) =>
 				record.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
 				record.scope.toLowerCase().includes(searchTerm.toLowerCase()) ||
+				record.authors[0].toLowerCase().includes(searchTerm.toLowerCase()) ||
 				record.scopeCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
 				record.fileCode.toLowerCase().includes(searchTerm.toLowerCase())
 		);
@@ -441,7 +442,7 @@ const StaffRecords: React.FC = () => {
 											record.scopeType.slice(1)
 										} ${record.scope}`}</td>
 										<td className="py-4 px-4">
-											{moment(record.dateSubmitted).format('MMMM d, YYYY')}
+											{moment(record.dateSubmitted).format('LL')}
 										</td>
 										<td className="py-4 px-4">{record.authors}</td>
 										<td className="py-4 px-4">
@@ -489,7 +490,7 @@ const StaffRecords: React.FC = () => {
 											record.scopeType.slice(1)
 										} ${record.scope}`}</td>
 										<td className="py-4 px-4">
-											{moment(record.dateSubmitted).format('MMMM d, YYYY')}
+											{moment(record.dateSubmitted).format('LL')}
 										</td>
 										<td className="py-4 px-4">{record.authors}</td>
 										<td className="py-4 px-4">
@@ -607,9 +608,7 @@ const StaffRecords: React.FC = () => {
 							<div>
 								<label className="font-semibold block">Date Submitted:</label>
 								<p className="text-gray-700">
-									{moment(selectedManuscript.dateSubmitted).format(
-										'MMMM d, yyyy'
-									)}
+									{moment(selectedManuscript.dateSubmitted).format('LL')}
 								</p>
 							</div>
 							<div>

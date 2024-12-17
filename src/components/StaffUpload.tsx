@@ -192,7 +192,7 @@ const StaffUpload: React.FC = () => {
 
 		await createManuscript({
 			...manuscriptDetails,
-			progressStatus: 'in progress',
+			progressStatus: 'In Progress',
 		}).then(() => {});
 
 		await sendMail({

@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, X, FileEdit, Bell } from 'lucide-react';
+import { Eye, X, FileEdit } from 'lucide-react';
 import { useRecords } from '../contexts/RecordContext';
-import { useReviewers } from '../contexts/ReviewersContext';
 import SearchBar from './SearchBar';
-import {
-	ManuscriptDetails,
-	Status,
-	UpdateDetails,
-} from '../contexts/RecordContext';
 import ScoresDisplay from './shared/ScoresDisplay';
-import { getManuscriptByStepStatus } from '../api/manuscript.api';
+import {
+	getManuscriptByStepStatus,
+	updateManuscript,
+} from '../api/manuscript.api';
+import { ManuscriptDetails } from './StaffRecords';
+import moment from 'moment';
+import { createRating, getRating } from '../api/rating.api';
+import { getReviewers } from '../api/reviewer.api';
+import { sendMail } from '../api/mail.api';
+import toast from 'react-hot-toast';
 
 interface ExtendedManuscriptDetails extends ManuscriptDetails {
 	firstRevisionDate?: string;
@@ -19,7 +22,6 @@ interface ExtendedManuscriptDetails extends ManuscriptDetails {
 
 const StaffDoubleBlind: React.FC = () => {
 	const { doubleBlindRecords, updateManuscriptStatus } = useRecords();
-	const { reviewers } = useReviewers();
 	const [searchTerm, setSearchTerm] = useState('');
 	const [modalState, setModalState] = useState<{
 		isModalOpen: boolean;
@@ -38,8 +40,9 @@ const StaffDoubleBlind: React.FC = () => {
 		isStatusModalOpen: false,
 		isUpdateReviewersModalOpen: false,
 	});
-	const [selectedManuscript, setSelectedManuscript] =
-		useState<ExtendedManuscriptDetails | null>(null);
+	const [selectedManuscript, setSelectedManuscript] = useState<
+		ManuscriptDetails | any
+	>(null);
 	const [layoutArtist, setLayoutArtist] = useState('');
 	const [layoutArtistEmail, setLayoutArtistEmail] = useState('');
 	const [revisionComments, setRevisionComments] = useState('');
@@ -95,43 +98,6 @@ const StaffDoubleBlind: React.FC = () => {
 		setLayoutArtistError(name ? '' : 'Layout artist name is required.');
 	};
 
-	const handleProceedToLayout = () => {
-		try {
-			if (selectedManuscript) {
-				const acceptedManuscript: Partial<ManuscriptDetails> = {
-					...selectedManuscript,
-					status: 'accepted' as const,
-					layoutDetails: {
-						layoutArtist,
-						layoutArtistEmail,
-						status: 'pending' as const,
-						dateAssigned: new Date().toISOString().split('T')[0],
-					},
-					reviewerRemarks,
-				};
-
-				updateManuscriptStatus(
-					selectedManuscript.id,
-					'accepted',
-					acceptedManuscript
-				);
-
-				// Show success modal instead of alert
-				setIsSuccessModalOpen(true);
-
-				// Reset form fields
-				setLayoutArtist('');
-				setLayoutArtistEmail('');
-				setLayoutArtistError('');
-				setLayoutArtistEmailError('');
-				closeAllModals();
-			}
-		} catch (error) {
-			console.error('Error updating manuscript status:', error);
-			alert('An error occurred while updating the manuscript status.');
-		}
-	};
-
 	const filteredRecords = doubleBlindRecords.filter(
 		(record) =>
 			record.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -165,51 +131,29 @@ const StaffDoubleBlind: React.FC = () => {
 		}));
 	};
 
-	const handleRevise = () => {
+	const handleRevise = async () => {
 		if (selectedManuscript && revisionComments && revisionDate) {
-			try {
-				const updatedManuscript: UpdateDetails = {
-					status: 'double-blind',
-					revisionStatus: 'For Revision',
-					revisionComments,
-					revisionDate: revisionDate,
-					firstRevisionDate:
-						selectedManuscript.firstRevisionDate || revisionDate,
-				};
-				updateManuscriptStatus(
-					selectedManuscript.id,
-					'double-blind',
-					updatedManuscript
-				);
-				closeAllModals();
+			await updateManuscript(selectedManuscript._id, {
+				revisionComment: revisionComments,
+				revisionDate: revisionDate,
+				progressStatus: 'For Revision',
+			});
+
+			await sendMail({
+				message: `<p>Hello ${selectedManuscript.authors[0]} <br/> Your manuscript entitled ${selectedManuscript.title} needs revision. <br/>Comment: ${revisionComments}</p>`,
+				recipients: [selectedManuscript.authorEmail],
+				subject: 'Manuscript Needs Revision',
+			}).then(() => {
 				setRevisionComments('');
 				setRevisionDate('');
-			} catch (error) {
-				console.error('Error updating manuscript status:', error);
-			}
-		}
-	};
-
-	const handleReject = () => {
-		if (selectedManuscript && rejectionComments) {
-			setPendingReject(selectedManuscript);
-			setShowRejectConfirmation(true);
+				closeAllModals();
+				getManuscripts();
+			});
 		}
 	};
 
 	const handleUpdateReviewers = () => {
 		if (selectedManuscript && updatedReviewers.filter((r) => r).length >= 2) {
-			const updatedManuscript = {
-				...selectedManuscript,
-				reviewers: updatedReviewers.filter((r) => r),
-			};
-
-			updateManuscriptStatus(
-				selectedManuscript.id,
-				selectedManuscript.status,
-				updatedManuscript
-			);
-
 			setIsUpdateReviewersModalOpen(false);
 			closeAllModals();
 		}
@@ -223,7 +167,7 @@ const StaffDoubleBlind: React.FC = () => {
 		);
 	};
 
-	const [manuscripts, setManuscripts] = useState([]);
+	const [manuscripts, setManuscripts] = useState<any>([]);
 
 	const getManuscripts = async () => {
 		await getManuscriptByStepStatus('Double-Blind').then((res) => {
@@ -231,9 +175,133 @@ const StaffDoubleBlind: React.FC = () => {
 		});
 	};
 
+	const [reviewers, setReviewers] = useState<any>([]);
+	const [selectedReviewers, setSelectedReviewers] = useState<string[]>([]);
+
+	const getAllReviewers = async () => {
+		await getReviewers().then((res) => {
+			setReviewers(res.data);
+		});
+	};
+
+	const updateReviewers = async () => {
+		await updateManuscript(selectedManuscript._id, {
+			reviewers: selectedReviewers,
+		});
+
+		let reviewersEmail = [];
+
+		for (let i = 0; i < selectedReviewers.length; i++) {
+			const filteredReviewer: any = reviewers.filter(
+				(reviewer: any) => reviewer._id == selectedReviewers[i]
+			);
+
+			reviewersEmail.push(filteredReviewer[0].email);
+		}
+
+		await sendMail({
+			message: `<p>Hello Reviewer <br/> You are assigned as Reviewer for the manuscript entitled ${selectedManuscript.title} by ${selectedManuscript.authors[0]}.</p>`,
+			recipients: reviewersEmail,
+			subject: 'Manuscript Reviewer Assignment',
+		}).then(() => {
+			setIsUpdateReviewersModalOpen(false);
+			closeAllModals();
+			getManuscripts();
+			setSelectedReviewers([]);
+		});
+	};
+
+	const handleReject = () => {
+		if (selectedManuscript && rejectionComments) {
+			setPendingReject(selectedManuscript);
+			setShowRejectConfirmation(true);
+		}
+	};
+
+	const confirmRejectManuscript = async () => {
+		await updateManuscript(selectedManuscript._id, {
+			progressStatus: 'Rejected',
+			status: 'Rejected',
+			rejectComment: rejectionComments,
+			rejectDate: new Date().toISOString(),
+		});
+
+		await sendMail({
+			message: `<p>Hello ${selectedManuscript.authors[0]} <br/> Your manuscript entitled ${selectedManuscript.title} has been rejected. <br/>Reason: ${rejectionComments}</p>`,
+			recipients: [selectedManuscript.authorEmail],
+			subject: 'Manuscript Rejected',
+		}).then(() => {
+			setRejectionComments('');
+
+			closeAllModals();
+		});
+	};
+
+	const [remarks, setRemarks] = useState<any>([]);
+	const [manuReviewers, setManuReviewers] = useState<any>([]);
+	const [filteredManuscripts, setFilteredManuscripts] = useState([]);
+
+	const handleProceedToLayout = async () => {
+		await updateManuscript(selectedManuscript._id, {
+			layoutArtistName: layoutArtist,
+			layoutArtistEmail: layoutArtistEmail,
+			layoutStatus: 'In Progress',
+			status: 'Layouting',
+		});
+
+		await sendMail({
+			message: `<p>Hello ${layoutArtist} <br/>You are assigned as Layout Artist for the manuscript entitled ${selectedManuscript.title} by ${selectedManuscript.authors[0]}</p>`,
+			recipients: [layoutArtistEmail],
+			subject: 'Layouting for Manuscript',
+		});
+
+		await sendMail({
+			message: `<p>Hello ${selectedManuscript.authors[0]} <br/>Your manuscript entitled ${selectedManuscript.title} is now in Layouting stage.</p>`,
+			recipients: [selectedManuscript.authorEmail],
+			subject: 'Manuscript Update: In Layouting Stage',
+		}).then(() => {
+			closeAllModals();
+			setLayoutArtist('');
+			setLayoutArtistEmail('');
+			getManuscripts();
+		});
+	};
+
+	const filterRecords = () => {
+		const filteredRecords = manuscripts.filter(
+			(record: any) =>
+				record.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+				record.scope.toLowerCase().includes(searchTerm.toLowerCase()) ||
+				record.authors[0].toLowerCase().includes(searchTerm.toLowerCase()) ||
+				record.scopeCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
+				record.fileCode.toLowerCase().includes(searchTerm.toLowerCase())
+		);
+
+		setFilteredManuscripts(filteredRecords);
+	};
+
+	const getRemarks = async () => {
+		for (let i = 0; i < selectedManuscript?.reviewers.length; i++) {
+			let reviewerId = selectedManuscript?.reviewers[i]._id;
+
+			await getRating(selectedManuscript._id, reviewerId).then((res) =>
+				setRemarks((prev: string[]) => [...prev, res?.data.remarks])
+			);
+		}
+	};
+
 	useEffect(() => {
 		getManuscripts();
+		getAllReviewers();
 	}, []);
+
+	useEffect(() => {
+		getRemarks();
+	}, [selectedManuscript]);
+
+	useEffect(() => {
+		filterRecords();
+	}, [searchTerm]);
 
 	return (
 		<div className="bg-white p-6 rounded-lg shadow-md">
@@ -253,56 +321,113 @@ const StaffDoubleBlind: React.FC = () => {
 						</tr>
 					</thead>
 					<tbody className="divide-y divide-gray-200">
-						{manuscripts.map((record, index) => (
-							<tr key={index} className="hover:bg-gray-50">
-								<td className="py-4 px-4">{record.scopeCode}</td>
-								<td className="py-4 px-4">{record.title}</td>
-								<td className="py-4 px-4">{`${
-									record.scopeType.charAt(0).toUpperCase() +
-									record.scopeType.slice(1)
-								} ${record.scope}`}</td>
-								<td className="py-4 px-4">{record.date}</td>
-								<td className="py-4 px-4">{record.authors}</td>
-								<td className="py-4 px-4">
-									<div className="flex flex-col space-y-2">
-										<span
-											className={`px-2 py-1 rounded-full text-sm ${
-												record.revisionStatus === 'For Revision'
-													? 'bg-yellow-100 text-yellow-800'
-													: record.revisionStatus === 'Rejected'
-													? 'bg-red-100 text-red-800'
-													: 'bg-blue-100 text-blue-800'
-											}`}
-										>
-											{record.revisionStatus || 'In Progress'}
-										</span>
-										{(record.revisionComments || record.rejectionComment) && (
+						{searchTerm === ''
+							? manuscripts.map((record: any, index: number) => (
+									<tr key={index} className="hover:bg-gray-50">
+										<td className="py-4 px-4">{record.fileCode}</td>
+										<td className="py-4 px-4">{record.title}</td>
+										<td className="py-4 px-4">{`${
+											record.scopeType.charAt(0).toUpperCase() +
+											record.scopeType.slice(1)
+										} ${record.scope}`}</td>
+										<td className="py-4 px-4">
+											{moment(record.dateSubmitted).format('LL')}
+										</td>
+										<td className="py-4 px-4">{record.authors}</td>
+										<td className="py-4 px-4">
+											<div className="flex flex-col space-y-2">
+												<span
+													className={`px-2 py-1 rounded-full text-sm ${
+														record.progressStatus === 'For Revision'
+															? 'bg-yellow-100 text-yellow-800'
+															: record.progressStatus === 'Rejected'
+															? 'bg-red-100 text-red-800'
+															: 'bg-blue-100 text-blue-800'
+													}`}
+												>
+													{record.progressStatus || 'In Progress'}
+												</span>
+												{(record.revisionComments ||
+													record.rejectionComment) && (
+													<button
+														onClick={() => {
+															setSelectedManuscript(record);
+															setModalState((prev) => ({
+																...prev,
+																isStatusModalOpen: true,
+															}));
+														}}
+														className="bg-gray-100 text-gray-700 px-2 py-1 rounded-md text-sm hover:bg-gray-200 transition-colors"
+													>
+														View Status
+													</button>
+												)}
+											</div>
+										</td>
+										<td className="py-4 px-4">
 											<button
-												onClick={() => {
-													setSelectedManuscript(record);
-													setModalState((prev) => ({
-														...prev,
-														isStatusModalOpen: true,
-													}));
-												}}
-												className="bg-gray-100 text-gray-700 px-2 py-1 rounded-md text-sm hover:bg-gray-200 transition-colors"
+												onClick={() => handleViewDetails(record)}
+												className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 transition-colors inline-flex items-center"
 											>
-												View Status
+												<Eye size={16} className="mr-1" />
+												View
 											</button>
-										)}
-									</div>
-								</td>
-								<td className="py-4 px-4">
-									<button
-										onClick={() => handleViewDetails(record)}
-										className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 transition-colors inline-flex items-center"
-									>
-										<Eye size={16} className="mr-1" />
-										View
-									</button>
-								</td>
-							</tr>
-						))}
+										</td>
+									</tr>
+							  ))
+							: filteredManuscripts.map((record: any, index: number) => (
+									<tr key={index} className="hover:bg-gray-50">
+										<td className="py-4 px-4">{record.fileCode}</td>
+										<td className="py-4 px-4">{record.title}</td>
+										<td className="py-4 px-4">{`${
+											record.scopeType.charAt(0).toUpperCase() +
+											record.scopeType.slice(1)
+										} ${record.scope}`}</td>
+										<td className="py-4 px-4">
+											{moment(record.dateSubmitted).format('LL')}
+										</td>
+										<td className="py-4 px-4">{record.authors}</td>
+										<td className="py-4 px-4">
+											<div className="flex flex-col space-y-2">
+												<span
+													className={`px-2 py-1 rounded-full text-sm ${
+														record.progressStatus === 'For Revision'
+															? 'bg-yellow-100 text-yellow-800'
+															: record.progressStatus === 'Rejected'
+															? 'bg-red-100 text-red-800'
+															: 'bg-blue-100 text-blue-800'
+													}`}
+												>
+													{record.progressStatus || 'In Progress'}
+												</span>
+												{(record.revisionComments ||
+													record.rejectionComment) && (
+													<button
+														onClick={() => {
+															setSelectedManuscript(record);
+															setModalState((prev) => ({
+																...prev,
+																isStatusModalOpen: true,
+															}));
+														}}
+														className="bg-gray-100 text-gray-700 px-2 py-1 rounded-md text-sm hover:bg-gray-200 transition-colors"
+													>
+														View Status
+													</button>
+												)}
+											</div>
+										</td>
+										<td className="py-4 px-4">
+											<button
+												onClick={() => handleViewDetails(record)}
+												className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 transition-colors inline-flex items-center"
+											>
+												<Eye size={16} className="mr-1" />
+												View
+											</button>
+										</td>
+									</tr>
+							  ))}
 					</tbody>
 				</table>
 			</div>
@@ -314,6 +439,7 @@ const StaffDoubleBlind: React.FC = () => {
 						<div className="flex justify-between items-center mb-4">
 							<h3 className="text-xl font-semibold">Manuscript Details</h3>
 							<button
+								title="cancelbtn"
 								onClick={() => closeAllModals()}
 								className="text-gray-500 hover:text-gray-700"
 							>
@@ -324,9 +450,7 @@ const StaffDoubleBlind: React.FC = () => {
 							<div className="flex-1 space-y-4">
 								<div>
 									<label className="font-semibold block">File Code:</label>
-									<p className="text-gray-700">
-										{selectedManuscript.scopeCode}
-									</p>
+									<p className="text-gray-700">{selectedManuscript.fileCode}</p>
 								</div>
 								<div>
 									<label className="font-semibold block">
@@ -353,15 +477,22 @@ const StaffDoubleBlind: React.FC = () => {
 								</div>
 								<div>
 									<label className="font-semibold block">Date:</label>
-									<p className="text-gray-700">{selectedManuscript.date}</p>
+									<p className="text-gray-700">
+										{moment(selectedManuscript.dateSubmitted).format('LL')}
+									</p>
 								</div>
 								<div>
 									<label className="font-semibold block">Email:</label>
-									<p className="text-gray-700">{selectedManuscript.email}</p>
+									<p className="text-gray-700">
+										{selectedManuscript.authorEmail}
+									</p>
 								</div>
 								<div>
 									<label className="font-semibold block">Editor:</label>
-									<p className="text-gray-700">{selectedManuscript.editor}</p>
+									<p className="text-gray-700">
+										{selectedManuscript?.editor.firstname}{' '}
+										{selectedManuscript?.editor.lastname}
+									</p>
 								</div>
 								<div>
 									<label className="font-semibold block mb-2">Scores:</label>
@@ -389,91 +520,97 @@ const StaffDoubleBlind: React.FC = () => {
 								</div>
 								<div className="space-y-4">
 									{selectedManuscript.reviewers?.map(
-										(reviewerId: string, index: number) => {
-											const reviewer = reviewers.find(
-												(r) => r.id.toString() === reviewerId
-											);
-											return reviewer ? (
-												<div
-													key={index}
-													className="bg-white p-4 rounded-lg shadow border border-gray-200"
-												>
-													<div className="flex flex-col">
-														<div className="flex justify-between items-start mb-3">
-															<div>
-																<p className="font-medium text-gray-800">
-																	{reviewer.firstName} {reviewer.middleName}{' '}
-																	{reviewer.lastName}
-																</p>
-																<p className="text-gray-600 text-sm">
-																	{reviewer.email}
-																</p>
-																<p className="text-gray-600 text-sm">
-																	Expertise: {reviewer.fieldOfExpertise}
-																</p>
-															</div>
-															<span className="text-sm font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">
-																Reviewer {index + 1}
+										(reviewer: any, index: number) => (
+											<div
+												key={index}
+												className="bg-white p-4 rounded-lg shadow border border-gray-200"
+											>
+												<div className="flex flex-col">
+													<div className="flex justify-between items-start mb-3">
+														<div>
+															<p className="font-medium text-gray-800">
+																{reviewer.firstname} {reviewer.middlename}{' '}
+																{reviewer.lastname}
+															</p>
+															<p className="text-gray-600 text-sm">
+																{reviewer.email}
+															</p>
+															<p className="text-gray-600 text-sm">
+																Expertise: {reviewer.fieldOfExpertise}
+															</p>
+														</div>
+														<span className="text-sm font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">
+															Reviewer {index + 1}
+														</span>
+													</div>
+
+													<div className="mt-2">
+														<label className="block text-sm font-medium text-gray-700 mb-2">
+															Remarks
+														</label>
+														<select
+															title="selectRemarks"
+															value={remarks[index]}
+															onChange={async (e) => {
+																await createRating({
+																	reviewerId: reviewer._id,
+																	manuscriptId: selectedManuscript._id,
+																	remarks: e.target.value,
+																}).then(() => {
+																	setModalState((prev) => ({
+																		...prev,
+																		isModalOpen: false,
+																	}));
+																	toast.success('Remarks saved successfully.');
+																	setRemarks([]);
+																	getManuscripts();
+																});
+															}}
+															className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+														>
+															<option value="">
+																{remarks[reviewer._id] || 'Select Remarks'}
+															</option>
+															<option value="Excellent">Excellent</option>
+															<option value="Acceptable">Acceptable</option>
+															<option value="Acceptable With Revision">
+																Acceptable with Revision
+															</option>
+															<option value="Not Acceptable">
+																Not Acceptable
+															</option>
+														</select>
+
+														{/* {reviewerRemarks[reviewerId] && (
+														<div className="mt-3">
+															<span
+																className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
+																	reviewerRemarks[reviewerId] === 'excellent'
+																		? 'bg-green-100 text-green-800'
+																		: reviewerRemarks[reviewerId] ===
+																		  'acceptable'
+																		? 'bg-blue-100 text-blue-800'
+																		: reviewerRemarks[reviewerId] ===
+																		  'acceptable-with-revision'
+																		? 'bg-yellow-100 text-yellow-800'
+																		: 'bg-red-100 text-red-800'
+																}`}
+															>
+																{reviewerRemarks[reviewerId]
+																	.split('-')
+																	.map(
+																		(word) =>
+																			word.charAt(0).toUpperCase() +
+																			word.slice(1)
+																	)
+																	.join(' ')}
 															</span>
 														</div>
-
-														<div className="mt-2">
-															<label className="block text-sm font-medium text-gray-700 mb-2">
-																Remarks
-															</label>
-															<select
-																value={reviewerRemarks[reviewerId] || ''}
-																onChange={(e) => {
-																	setReviewerRemarks((prev) => ({
-																		...prev,
-																		[reviewerId]: e.target.value,
-																	}));
-																}}
-																className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-															>
-																<option value="">Select Remarks</option>
-																<option value="excellent">Excellent</option>
-																<option value="acceptable">Acceptable</option>
-																<option value="acceptable-with-revision">
-																	Acceptable with Revision
-																</option>
-																<option value="not-acceptable">
-																	Not Acceptable
-																</option>
-															</select>
-
-															{reviewerRemarks[reviewerId] && (
-																<div className="mt-3">
-																	<span
-																		className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
-																			reviewerRemarks[reviewerId] ===
-																			'excellent'
-																				? 'bg-green-100 text-green-800'
-																				: reviewerRemarks[reviewerId] ===
-																				  'acceptable'
-																				? 'bg-blue-100 text-blue-800'
-																				: reviewerRemarks[reviewerId] ===
-																				  'acceptable-with-revision'
-																				? 'bg-yellow-100 text-yellow-800'
-																				: 'bg-red-100 text-red-800'
-																		}`}
-																	>
-																		{reviewerRemarks[reviewerId]
-																			.split('-')
-																			.map(
-																				(word) =>
-																					word.charAt(0).toUpperCase() +
-																					word.slice(1)
-																			)
-																			.join(' ')}
-																	</span>
-																</div>
-															)}
-														</div>
+													)} */}
 													</div>
 												</div>
-											) : null;
-										}
+											</div>
+										)
 									)}
 									{(!selectedManuscript.reviewers ||
 										selectedManuscript.reviewers.length === 0) && (
@@ -533,6 +670,7 @@ const StaffDoubleBlind: React.FC = () => {
 						<div className="flex justify-between items-center mb-4">
 							<h3 className="text-xl font-semibold">Layouting Details</h3>
 							<button
+								title="cancelbtn"
 								onClick={() => closeAllModals()}
 								className="text-gray-500 hover:text-gray-700"
 							>
@@ -546,7 +684,7 @@ const StaffDoubleBlind: React.FC = () => {
 							</div>
 							<div>
 								<h4 className="font-semibold mb-2">Author/s:</h4>
-								<p className="text-gray-700">{selectedManuscript.authors}</p>
+								<p className="text-gray-700">{selectedManuscript.authors[0]}</p>
 							</div>
 							<div className="mb-4">
 								<label className="block text-sm font-medium text-gray-700 mb-1">
@@ -629,6 +767,7 @@ const StaffDoubleBlind: React.FC = () => {
 								Confirm Layout Transition
 							</h3>
 							<button
+								title="cancelbtn"
 								onClick={() => closeAllModals()}
 								className="text-gray-500 hover:text-gray-700"
 							>
@@ -705,6 +844,7 @@ const StaffDoubleBlind: React.FC = () => {
 						<div className="flex justify-between items-center mb-4">
 							<h3 className="text-xl font-semibold">Revise Manuscript</h3>
 							<button
+								title="cancelbtn"
 								onClick={closeAllModals}
 								className="text-gray-500 hover:text-gray-700"
 							>
@@ -771,6 +911,7 @@ const StaffDoubleBlind: React.FC = () => {
 						<div className="flex justify-between items-center mb-4">
 							<h3 className="text-xl font-semibold">Reject Manuscript</h3>
 							<button
+								title="cancelbtn"
 								onClick={() => closeAllModals()}
 								className="text-gray-500 hover:text-gray-700"
 							>
@@ -826,6 +967,7 @@ const StaffDoubleBlind: React.FC = () => {
 						<div className="flex justify-between items-center mb-4">
 							<h3 className="text-xl font-semibold">Revision Status</h3>
 							<button
+								title="cancelbtn"
 								onClick={() => closeAllModals()}
 								className="text-gray-500 hover:text-gray-700"
 							>
@@ -899,6 +1041,7 @@ const StaffDoubleBlind: React.FC = () => {
 						<div className="flex justify-between items-center mb-4">
 							<h3 className="text-xl font-semibold">Update Reviewers</h3>
 							<button
+								title="cancelbtn"
 								onClick={() => setIsUpdateReviewersModalOpen(false)}
 								className="text-gray-500 hover:text-gray-700"
 							>
@@ -907,71 +1050,104 @@ const StaffDoubleBlind: React.FC = () => {
 						</div>
 
 						<div className="space-y-6">
-							{[0, 1, 2, 3].map((index) => (
-								<div key={index} className="mb-6">
-									<label className="block text-sm font-medium text-gray-700 mb-2">
-										Reviewer {index + 1}{' '}
-										{index < 2 ? '(Required)' : '(Optional)'}
-									</label>
-									<select
-										value={updatedReviewers[index] || ''}
-										onChange={(e) => {
-											const newReviewers = [...updatedReviewers];
-											newReviewers[index] = e.target.value;
-											setUpdatedReviewers(newReviewers);
-										}}
-										className={`w-full p-2 border rounded focus:ring-2 ${
-											index < 2
-												? 'focus:ring-blue-500 border-blue-200'
-												: 'focus:ring-gray-500 border-gray-200'
-										}`}
-										required={index < 2}
-									>
-										<option value="">Select a reviewer</option>
-										{reviewers
-											.filter(
-												(reviewer) =>
-													!updatedReviewers.includes(reviewer.id.toString()) ||
-													updatedReviewers[index] === reviewer.id.toString()
-											)
-											.map((reviewer) => (
-												<option
-													key={reviewer.id}
-													value={reviewer.id.toString()}
-												>
-													{`${reviewer.firstName} ${reviewer.lastName}`}
-												</option>
-											))}
-									</select>
+							<div>
+								<label className="block text-sm font-medium text-gray-700 mb-2">
+									Reviewer 1 (Required)
+								</label>
+								<select
+									title="selectreviewers"
+									value={selectedReviewers[0] || ''}
+									onChange={(e) =>
+										setSelectedReviewers((prevState) => [
+											...prevState,
+											e.target.value,
+										])
+									}
+									className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
+									required
+								>
+									<option value="">Select a reviewer</option>
+									{reviewers.map((reviewer: any) => (
+										<option key={reviewer._id} value={reviewer._id}>
+											{`${reviewer.firstname} ${reviewer.lastname}`}
+										</option>
+									))}
+								</select>
+							</div>
 
-									{updatedReviewers[index] && (
-										<div className="mt-2 p-3 bg-gray-50 rounded-md border border-gray-200">
-											{(() => {
-												const reviewer = reviewers.find(
-													(r) => r.id.toString() === updatedReviewers[index]
-												);
-												if (!reviewer) return null;
-												return (
-													<div className="text-sm">
-														<p>
-															<span className="font-medium">Name:</span>{' '}
-															{reviewer.firstName} {reviewer.lastName}
-														</p>
-														<p>
-															<span className="font-medium">Email:</span>{' '}
-															{reviewer.email}
-														</p>
-														<p>
-															<span className="font-medium">Expertise:</span>{' '}
-															{reviewer.fieldOfExpertise}
-														</p>
-													</div>
-												);
-											})()}
-										</div>
-									)}
-								</div>
-							))}
+							<div>
+								<label className="block text-sm font-medium text-gray-700 mb-2">
+									Reviewer 2 (Required)
+								</label>
+								<select
+									title="selectreviewers"
+									value={selectedReviewers[1] || ''}
+									onChange={(e) =>
+										setSelectedReviewers((prevState) => [
+											...prevState,
+											e.target.value,
+										])
+									}
+									className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
+									required
+								>
+									<option value="">Select a reviewer</option>
+									{reviewers.map((reviewer: any) => (
+										<option key={reviewer._id} value={reviewer._id}>
+											{`${reviewer.firstname} ${reviewer.lastname}`}
+										</option>
+									))}
+								</select>
+							</div>
+
+							{/* Optional Reviewers */}
+							<div>
+								<label className="block text-sm font-medium text-gray-700 mb-2">
+									Reviewer 3 (Optional)
+								</label>
+								<select
+									title="selectreviewers"
+									value={selectedReviewers[2] || ''}
+									onChange={(e) =>
+										setSelectedReviewers((prevState) => [
+											...prevState,
+											e.target.value,
+										])
+									}
+									className="w-full p-2 border rounded focus:ring-2 focus:ring-gray-500"
+								>
+									<option value="">Select a reviewer</option>
+									{reviewers.map((reviewer: any) => (
+										<option key={reviewer._id} value={reviewer._id}>
+											{`${reviewer.firstname} ${reviewer.lastname}`}
+										</option>
+									))}
+								</select>
+							</div>
+
+							<div>
+								<label className="block text-sm font-medium text-gray-700 mb-2">
+									Reviewer 4 (Optional)
+								</label>
+								<select
+									title="selectreviewers"
+									value={selectedReviewers[3] || ''}
+									onChange={(e) =>
+										setSelectedReviewers((prevState) => [
+											...prevState,
+											e.target.value,
+										])
+									}
+									className="w-full p-2 border rounded focus:ring-2 focus:ring-gray-500"
+								>
+									<option value="">Select a reviewer</option>
+									{reviewers.map((reviewer: any) => (
+										<option key={reviewer._id} value={reviewer._id}>
+											{`${reviewer.firstname} ${reviewer.lastname}`}
+										</option>
+									))}
+								</select>
+							</div>
 						</div>
 
 						<div className="flex justify-end space-x-4 mt-6">
@@ -982,7 +1158,7 @@ const StaffDoubleBlind: React.FC = () => {
 								Cancel
 							</button>
 							<button
-								onClick={handleUpdateReviewers}
+								onClick={updateReviewers}
 								disabled={updatedReviewers.filter((r) => r).length < 2}
 								className={`px-4 py-2 rounded text-white ${
 									updatedReviewers.filter((r) => r).length >= 2
@@ -1029,7 +1205,7 @@ const StaffDoubleBlind: React.FC = () => {
 									Are you sure you want to reject this manuscript?
 								</p>
 								<div className="mt-2 text-sm text-gray-500">
-									<p>Title: {pendingReject.title}</p>
+									{/* <p>Title: {pendingReject.title}</p> */}
 									<p>Comments: {rejectionComments}</p>
 								</div>
 							</div>
@@ -1042,24 +1218,14 @@ const StaffDoubleBlind: React.FC = () => {
 								</button>
 								<button
 									onClick={() => {
-										const updatedManuscript = {
-											...pendingReject,
-											status: 'rejected',
-											rejectionComment: rejectionComments,
-											rejectionDate: new Date().toISOString().split('T')[0],
-										};
-										updateManuscriptStatus(
-											pendingReject.id,
-											'rejected',
-											updatedManuscript
-										);
+										confirmRejectManuscript();
 										setShowRejectConfirmation(false);
 										setModalState((prev) => ({
 											...prev,
 											isRejectModalOpen: false,
 										}));
 										setRejectionComments('');
-										setIsRejectionSuccessModalOpen(true);
+										getManuscripts();
 									}}
 									className="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
 								>
