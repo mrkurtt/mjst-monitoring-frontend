@@ -1,73 +1,100 @@
-import React, { useState, useEffect } from 'react';
-import { Eye, X } from 'lucide-react';
-import { useRecords } from '../contexts/RecordContext';
-import { useReviewers } from '../contexts/ReviewersContext';
-import SearchBar from './SearchBar';
-import ScoresDisplay from './shared/ScoresDisplay';
+import React, { useState, useEffect } from "react";
+import { Eye, X } from "lucide-react";
+import { useRecords } from "../contexts/RecordContext";
+import { useReviewers } from "../contexts/ReviewersContext";
+import SearchBar from "./SearchBar";
+import ScoresDisplay from "./shared/ScoresDisplay";
+import { getManuscriptByStepStatus } from "../api/manuscript.api";
+import moment from "moment";
+import { getRating } from "../api/rating.api";
 
 const DirectorPublished: React.FC = () => {
   const { publishedRecords } = useRecords();
   const { reviewers } = useReviewers();
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<any>(null);
-  const [selectedYear, setSelectedYear] = useState<string>('all');
+  const [selectedYear, setSelectedYear] = useState<string>("all");
 
-  // Generate year options from 2025 to 2100
-  const yearOptions = Array.from({ length: 76 }, (_, i) => (2025 + i).toString());
+  const [manuscripts, setManuscripts] = useState<any>([]);
+  const [filteredManuscripts, setFilteredManuscripts] = useState([]);
+  const [remarks, setRemarks] = useState<any>([]);
 
-  const filteredRecords = publishedRecords.filter(record => {
-    const matchesSearch = record.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      record.authors.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      record.scope.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      record.scopeCode.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesYear = selectedYear === 'all' || 
-      record.publishDetails?.volumeYear === selectedYear;
-
-    return matchesSearch && matchesYear;
-  });
-
-  const handleViewDetails = async (record: any) => {
-    try {
-      console.log('Attempting to view record:', record);
-      // First set the basic record details
-      setSelectedRecord(record);
-      setIsModalOpen(true);
-      
-      // Update the fetch URL to match your API endpoint
-      const response = await fetch(`/api/published/${record.id}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch record details');
-      }
-      const data = await response.json();
-      console.log('Fetched record details:', data);
-      
-      // Update the record with staff details
-      setSelectedRecord(prev => ({
-        ...prev,
-        staffPublished: {
-          reviewer1: data.reviewer1,
-          reviewer2: data.reviewer2,
-          reviewer3: data.reviewer3
-        }
-      }));
-    } catch (error) {
-      console.error('Error in handleViewDetails:', error);
+  const getManuscripts = async () => {
+    setManuscripts([]);
+    setSearchTerm("");
+    if (selectedYear === "all") {
+      await getManuscriptByStepStatus("Published").then((res) => setManuscripts(res.data));
+      return;
     }
+    await getManuscriptByStepStatus("Published", Number(selectedYear)).then((res) => setManuscripts(res.data));
+  };
+
+  const getRemarks = async () => {
+    for (let i = 0; i < selectedRecord?.reviewers.length; i++) {
+      let reviewerId = selectedRecord?.reviewers[i]._id;
+
+      await getRating(selectedRecord._id, reviewerId).then((res) =>
+        setRemarks((prev: string[]) => [...prev, res?.data.remarks])
+      );
+    }
+  };
+  const filterRecords = () => {
+    const filteredRecords = manuscripts.filter(
+      (record: any) =>
+        record.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        record.scope.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        record.authors[0].toLowerCase().includes(searchTerm.toLowerCase()) ||
+        record.scopeCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        record.fileCode.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    setFilteredManuscripts(filteredRecords);
+  };
+
+  // Generate year options from 2024 to 2100
+  const yearOptions = Array.from({ length: 76 }, (_, i) => (2024 + i).toString());
+
+  // const filteredRecords = publishedRecords.filter((record) => {
+  //   const matchesSearch =
+  //     record.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  //     record.authors.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  //     record.scope.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  //     record.scopeCode.toLowerCase().includes(searchTerm.toLowerCase());
+
+  //   const matchesYear = selectedYear === "all" || record.publishDetails?.volumeYear === selectedYear;
+
+  //   return matchesSearch && matchesYear;
+  // });
+
+  const handleViewDetails = (record: any) => {
+    setSelectedRecord(record);
+    setIsModalOpen(true);
   };
 
   // Add this useEffect to check the data when it loads
   useEffect(() => {
-    console.log('Published Records:', publishedRecords);
+    console.log("Published Records:", publishedRecords);
   }, [publishedRecords]);
+
+  useEffect(() => {
+    getManuscripts();
+  }, [selectedYear]);
+
+  useEffect(() => {
+    getRemarks();
+  }, [selectedRecord]);
+
+  useEffect(() => {
+    filterRecords();
+  }, [searchTerm]);
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-md">
       <h3 className="text-xl font-semibold mb-4">Published Records</h3>
       <div className="mb-6">
         <SearchBar searchTerm={searchTerm} onSearchChange={setSearchTerm} />
-        
+
         {/* Year Filter */}
         <div className="mt-4 p-4 bg-gray-50 rounded-lg">
           <div className="flex items-center">
@@ -75,11 +102,12 @@ const DirectorPublished: React.FC = () => {
             <select
               value={selectedYear}
               onChange={(e) => setSelectedYear(e.target.value)}
-              className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-            >
+              className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
               <option value="all">All Years</option>
-              {yearOptions.map(year => (
-                <option key={year} value={year}>{year}</option>
+              {yearOptions.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
               ))}
             </select>
           </div>
@@ -99,24 +127,45 @@ const DirectorPublished: React.FC = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {filteredRecords.map((record, index) => (
-              <tr key={index} className="hover:bg-gray-50">
-                <td className="py-4 px-4">{record.scopeCode}</td>
-                <td className="py-4 px-4">{record.title}</td>
-                <td className="py-4 px-4">{`${record.scopeType.charAt(0).toUpperCase() + record.scopeType.slice(1)} ${record.scope}`}</td>
-                <td className="py-4 px-4">{record.authors}</td>
-                <td className="py-4 px-4">{record.publishDetails?.datePublished}</td>
-                <td className="py-4 px-4">
-                  <button
-                    onClick={() => handleViewDetails(record)}
-                    className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 transition-colors flex items-center"
-                  >
-                    <Eye size={16} className="mr-1" />
-                    View
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {searchTerm === ""
+              ? manuscripts.map((record: any, index: number) => (
+                  <tr key={index} className="hover:bg-gray-50">
+                    <td className="py-4 px-4">{record.fileCode}</td>
+                    <td className="py-4 px-4">{record.title}</td>
+                    <td className="py-4 px-4">{`${
+                      record.scopeType.charAt(0).toUpperCase() + record.scopeType.slice(1)
+                    } ${record.scope}`}</td>
+                    <td className="py-4 px-4">{record.authors.join(", ")}</td>
+                    <td className="py-4 px-4">{moment(record.datePublished).format("LL")}</td>
+                    <td className="py-4 px-4">
+                      <button
+                        onClick={() => handleViewDetails(record)}
+                        className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 transition-colors inline-flex items-center">
+                        <Eye size={16} className="mr-1" />
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              : filteredManuscripts.map((record: any, index: number) => (
+                  <tr key={index} className="hover:bg-gray-50">
+                    <td className="py-4 px-4">{record.fileCode}</td>
+                    <td className="py-4 px-4">{record.title}</td>
+                    <td className="py-4 px-4">{`${
+                      record.scopeType.charAt(0).toUpperCase() + record.scopeType.slice(1)
+                    } ${record.scope}`}</td>
+                    <td className="py-4 px-4">{record.authors.join(", ")}</td>
+                    <td className="py-4 px-4">{moment(record.datePublished).format("LL")}</td>
+                    <td className="py-4 px-4">
+                      <button
+                        onClick={() => handleViewDetails(record)}
+                        className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 transition-colors inline-flex items-center">
+                        <Eye size={16} className="mr-1" />
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))}
           </tbody>
         </table>
       </div>
@@ -127,169 +176,182 @@ const DirectorPublished: React.FC = () => {
           <div className="bg-white p-6 rounded-lg w-[1100px] max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xl font-semibold">Published Record Details</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-gray-500 hover:text-gray-700">
+              <button
+                title="cancelbtn"
+                onClick={() => {
+                  setIsModalOpen(false);
+                  setRemarks([]);
+                }}
+                className="text-gray-500 hover:text-gray-700">
                 <X size={24} />
               </button>
             </div>
 
-            <div className="grid grid-cols-3 gap-6">
-              {/* Left Column - Record Info */}
-              <div className="col-span-2 space-y-6">
-                {/* Manuscript Information */}
-                <div className="mb-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex-1 space-y-4">
+                {/* Manuscript Information Section */}
+                <div className="bg-gray-50 p-4 rounded-lg mb-6">
                   <h4 className="font-semibold text-gray-800 mb-3">Manuscript Information</h4>
-                  <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="font-medium text-gray-700 block">File Code:</label>
-                      <p className="text-gray-700">{selectedRecord.scopeCode}</p>
+                      <p className="text-gray-700">{selectedRecord.fileCode}</p>
                     </div>
                     <div>
+                      <label className="font-medium text-gray-700 block">Date Submitted:</label>
+                      <p className="text-gray-700">
+                        {moment(selectedRecord.dateSubmitted).format("LL") || "Not available"}
+                      </p>
+                    </div>
+                    <div className="col-span-2">
                       <label className="font-medium text-gray-700 block">Journal/Research Title:</label>
                       <p className="text-gray-700">{selectedRecord.title}</p>
                     </div>
-                    <div>
+                    <div className="col-span-2">
                       <label className="font-medium text-gray-700 block">Author/s:</label>
-                      <p className="text-gray-700">{selectedRecord.authors}</p>
+                      <p className="text-gray-700">{selectedRecord.authors[0]}</p>
                     </div>
-                    <div>
+                    <div className="col-span-2">
                       <label className="font-medium text-gray-700 block">Field/Scope:</label>
-                      <p className="text-gray-700">{`${selectedRecord.scopeType.charAt(0).toUpperCase() + selectedRecord.scopeType.slice(1)} ${selectedRecord.scope}`}</p>
+                      <p className="text-gray-700">{`${
+                        selectedRecord.scopeType.charAt(0).toUpperCase() + selectedRecord.scopeType.slice(1)
+                      } ${selectedRecord.scope}`}</p>
                     </div>
-                    <div>
+                    <div className="col-span-2">
                       <label className="font-medium text-gray-700 block">Editor:</label>
-                      <p className="text-gray-700">{selectedRecord.editor}</p>
+                      <p className="text-gray-700">
+                        {selectedRecord.editor.firstname} {selectedRecord.editor.lastname}
+                      </p>
                     </div>
                   </div>
                 </div>
 
-                {/* Manuscript Scores */}
+                {/* Add the scores display */}
                 <div className="mb-6">
                   <h4 className="font-semibold text-gray-800 mb-3">Manuscript Scores</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="font-medium text-gray-700 block">Grammar Score:</label>
-                      <p className="text-green-600">{selectedRecord.grammarScore}% (Passed)</p>
-                    </div>
-                    <div>
-                      <label className="font-medium text-gray-700 block">Plagiarism Score:</label>
-                      <p className="text-green-600">{selectedRecord.plagiarismScore}% (Passed)</p>
-                    </div>
-                  </div>
+                  <ScoresDisplay manuscript={selectedRecord} />
                 </div>
 
                 {/* Publication Details */}
-                <div className="mb-6">
+                <div className="bg-gray-50 p-4 rounded-lg mb-6">
                   <h4 className="font-semibold text-gray-800 mb-3">Publication Details</h4>
-                  <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="font-medium text-gray-700 block">Issue Number:</label>
-                      <p className="text-gray-700">{selectedRecord.publishDetails?.scopeNumber}</p>
+                      <p className="text-gray-700">{selectedRecord.issueNumber}</p>
+                    </div>
+                    {selectedRecord.issueName && (
+                      <div>
+                        <label className="font-medium text-gray-700 block">Issue Name:</label>
+                        <p className="text-gray-700">{selectedRecord.issueName}</p>
+                      </div>
+                    )}
+                    <div>
+                      <label className="font-medium text-gray-700 block">Volume Name:</label>
+                      <p className="text-gray-700">{selectedRecord.volumeYear}</p>
                     </div>
                     <div>
                       <label className="font-medium text-gray-700 block">Date Published:</label>
-                      <p className="text-gray-700">{selectedRecord.publishDetails?.datePublished}</p>
+                      <p className="text-gray-700">{moment(selectedRecord.datePublished).format("LL")}</p>
                     </div>
                   </div>
                 </div>
 
                 {/* Layout Details */}
-                <div className="mb-6">
+                <div className="bg-gray-50 p-4 rounded-lg mb-6">
                   <h4 className="font-semibold text-gray-800 mb-3">Layout Details</h4>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="font-medium text-gray-700 block">Layout Artist:</label>
-                      <p className="text-gray-700">{selectedRecord.layoutDetails?.layoutArtist}</p>
+                      <p className="text-gray-700">{selectedRecord.layoutArtistName}</p>
                     </div>
                     <div>
                       <label className="font-medium text-gray-700 block">Layout Artist Email:</label>
-                      <p className="text-gray-700">{selectedRecord.layoutDetails?.layoutArtistEmail}</p>
+                      <p className="text-gray-700">{selectedRecord.layoutArtistEmail}</p>
                     </div>
                     <div>
                       <label className="font-medium text-gray-700 block">Date Finished:</label>
-                      <p className="text-gray-700">{selectedRecord.layoutDetails?.dateFinished}</p>
+                      <p className="text-gray-700">{moment(selectedRecord.layoutFinishDate).format("LL")}</p>
                     </div>
                   </div>
                 </div>
 
                 {/* Proofreading Details */}
-                <div className="mb-6">
+                <div className="bg-gray-50 p-4 rounded-lg">
                   <h4 className="font-semibold text-gray-800 mb-3">Proofreading Details</h4>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="font-medium text-gray-700 block">Proofreader:</label>
-                      <p className="text-gray-700">{selectedRecord.proofreadingDetails?.proofreader}</p>
+                      <p className="text-gray-700">{selectedRecord.proofReaderName}</p>
                     </div>
                     <div>
                       <label className="font-medium text-gray-700 block">Proofreader Email:</label>
-                      <p className="text-gray-700">{selectedRecord.proofreadingDetails?.proofreaderEmail}</p>
+                      <p className="text-gray-700">{selectedRecord.proofReaderEmail}</p>
                     </div>
                     <div>
                       <label className="font-medium text-gray-700 block">Date Sent:</label>
-                      <p className="text-gray-700">{selectedRecord.proofreadingDetails?.dateSent}</p>
+                      <p className="text-gray-700">{moment(selectedRecord.dateSent).format("LL")}</p>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Right Column - Assigned Reviewers */}
-              <div>
-                <h4 className="font-semibold text-gray-800 mb-3">Assigned Reviewers</h4>
+              {/* Assigned Reviewers Section */}
+              <div className="w-[350px] border-l pl-6">
+                <h4 className="text-lg font-semibold mb-4">Assigned Reviewers</h4>
                 <div className="space-y-4">
-                  {selectedRecord?.staffPublished?.reviewer1 && (
-                    <div className="bg-white border rounded-lg p-4">
-                      <div className="flex justify-between items-start">
+                  {selectedRecord.reviewers?.map((reviewer: any, index: number) => (
+                    <div key={index} className="bg-white p-3 rounded-md shadow-sm border border-gray-100">
+                      <div className="flex justify-between items-start mb-3">
                         <div>
                           <p className="font-medium text-gray-800">
-                            {selectedRecord.staffPublished.reviewer1.firstName} {selectedRecord.staffPublished.reviewer1.lastName}
+                            {reviewer.firstname} {reviewer.middlename} {reviewer.lastname}
                           </p>
-                          <p className="text-sm text-gray-600">{selectedRecord.staffPublished.reviewer1.email}</p>
-                          <p className="text-sm text-gray-600">Expertise: {selectedRecord.staffPublished.reviewer1.fieldOfExpertise}</p>
-                          <p className="text-sm text-gray-600">Contact: {selectedRecord.staffPublished.reviewer1.contact}</p>
-                          <p className="text-sm text-gray-600">Affiliation: {selectedRecord.staffPublished.reviewer1.affiliation}</p>
-                          
-                          <div className="mt-4">
-                            <p className="text-sm font-medium mb-2">Remarks</p>
-                            <div className="bg-gray-50 p-2 rounded">
-                              <select
-                                className="w-full p-2 border rounded"
-                                value={selectedRecord.staffPublished.reviewer1.remarks || ''}
-                                disabled
-                              >
-                                <option value="">Select Remarks</option>
-                                <option value="excellent">Excellent</option>
-                                <option value="acceptable">Acceptable</option>
-                                <option value="acceptable-with-revision">Acceptable with Revision</option>
-                                <option value="not-acceptable">Not Acceptable</option>
-                              </select>
-                            </div>
-                          </div>
+                          <p className="text-gray-600 text-sm">{reviewer.email}</p>
+                          <p className="text-gray-600 text-sm">Expertise: {reviewer.fieldOfExpertise}</p>
                         </div>
-                        <span className="text-blue-600 font-medium">Reviewer 1</span>
+                        <span className="text-sm font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                          Reviewer {index + 1}
+                        </span>
                       </div>
+                      {selectedRecord && (
+                        <div className="mt-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+                          <span
+                            className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
+                              remarks[index] === "Excellent"
+                                ? "bg-green-100 text-green-800"
+                                : remarks[index] === "acceptable"
+                                ? "bg-blue-100 text-blue-800"
+                                : remarks[index] === "acceptable-with-revision"
+                                ? "bg-yellow-100 text-yellow-800"
+                                : "bg-red-100 text-red-800"
+                            }`}>
+                            {remarks[index]
+                              ?.split("-")
+                              .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+                              .join(" ") || "No Remarks found"}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                  )}
-
-                  {/* Repeat for Reviewer 2 */}
-                  {selectedRecord?.staffPublished?.reviewer2 && (
-                    <div className="bg-white border rounded-lg p-4">
-                      {/* Same structure as Reviewer 1, but with reviewer2 data */}
-                    </div>
-                  )}
-
-                  {/* Repeat for Reviewer 3 */}
-                  {selectedRecord?.staffPublished?.reviewer3 && (
-                    <div className="bg-white border rounded-lg p-4">
-                      {/* Same structure as Reviewer 1, but with reviewer3 data */}
-                    </div>
-                  )}
-
-                  {!selectedRecord?.staffPublished?.reviewer1 && 
-                   !selectedRecord?.staffPublished?.reviewer2 && 
-                   !selectedRecord?.staffPublished?.reviewer3 && (
+                  ))}
+                  {(!selectedRecord.reviewers || selectedRecord.reviewers.length === 0) && (
                     <p className="text-gray-500 italic">No reviewers assigned</p>
                   )}
                 </div>
               </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => {
+                  setIsModalOpen(false);
+                  setRemarks([]);
+                }}
+                className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 transition-colors">
+                Close
+              </button>
             </div>
           </div>
         </div>
