@@ -9,7 +9,7 @@ import { getAnalytics } from "../api/analytics.api";
 
 const DashboardContent: React.FC = () => {
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
-  const [selectedYear, setSelectedYear] = useState<number>(2025);
+  const [selectedYear, setSelectedYear] = useState<number>(2024);
   const [showSummary, setShowSummary] = useState(false);
   const location = useLocation();
   const isDirectorDashboard = location.pathname.includes("/director");
@@ -73,8 +73,8 @@ const DashboardContent: React.FC = () => {
 
   // Yearly submissions data
   const [yearlySubmissions, setYearlySubmissions] = useState({
-    firstHalf: Array(6).fill(0), // January to June
-    secondHalf: Array(6).fill(0), // July to December
+    firstHalf: Array(6).fill(1), // January to June
+    secondHalf: Array(6).fill(1), // July to December
   });
 
   // Store yearly data separately for each year
@@ -116,13 +116,13 @@ const DashboardContent: React.FC = () => {
 
   // Function to check if data should be reset
   const shouldResetData = (year: number) => {
-    return year > 2025;
+    return year > 2024;
   };
 
   // Get data for the selected year
   const getYearData = (year: number) => {
-    // For year 2025, show actual data
-    if (year === 2025) {
+    // For year 2024, show actual data
+    if (year === 2024) {
       return {
         stats: {
           preReviewCount,
@@ -155,7 +155,7 @@ const DashboardContent: React.FC = () => {
       };
     }
 
-    // For years after 2025, reset data except reviewers/editors
+    // For years after 2024, reset data except reviewers/editors
     if (shouldResetData(year)) {
       return {
         stats: {
@@ -194,8 +194,8 @@ const DashboardContent: React.FC = () => {
   const handleYearChange = (increment: boolean) => {
     setSelectedYear((prev) => {
       const newYear = increment ? prev + 1 : prev - 1;
-      // Don't allow going below 2025
-      return newYear < 2025 ? 2025 : newYear;
+      // Don't allow going below 2024
+      return newYear < 2024 ? 2024 : newYear;
     });
   };
 
@@ -308,16 +308,50 @@ const DashboardContent: React.FC = () => {
     };
   };
 
-  // Function to get chart data
-  const getChartData = () => {
+  // Function to get monthly data for the selected year
+  const getMonthlyData = () => {
     const yearData = getYearData(selectedYear);
-    const { stats } = yearData;
+    return {
+      firstHalf: yearData.submissions.firstHalf.map((value, index) => ({
+        name: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"][index],
+        value,
+      })),
+      secondHalf: yearData.submissions.secondHalf.map((value, index) => ({
+        name: ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][index],
+        value,
+      })),
+    };
+  };
+
+  // Function to get card title
+  const getCardTitle = (cardId: string) => {
+    const titles: { [key: string]: string } = {
+      "pre-review": "Pre-Review",
+      "double-blind": "Double-Blind",
+      accepted: "Accepted",
+      published: "Published",
+      rejected: "Rejected",
+      reviewers: "Reviewers",
+      editors: "Editors",
+    };
+    return titles[cardId] || cardId;
+  };
+
+  // Function to handle card expand
+  const handleCardExpand = (cardId: string) => {
+    setSelectedCard(cardId);
+  };
+
+  // Function to get chart data
+  const getChartData = (stats: any) => {
+    const yearData = getYearData(selectedYear);
+    // const { stats } = yearData;
 
     // Calculate totals for percentages
     const reviewTotal = stats.preReviewCount + stats.doubleBlindCount + stats.acceptedCount;
     const submissionTotal = stats.uploadCount + stats.publishedCount + stats.rejectedCount;
 
-    const reviewStatusData = [
+    const reviewStatus = [
       {
         name: "Pre-Review",
         value: stats.preReviewCount,
@@ -342,7 +376,7 @@ const DashboardContent: React.FC = () => {
           ]),
     ].filter((item) => item.value > 0);
 
-    const submissionTypeData = [
+    const submissionType = [
       {
         name: "Upload",
         value: stats.uploadCount,
@@ -363,16 +397,16 @@ const DashboardContent: React.FC = () => {
       },
     ].filter((item) => item.value > 0);
 
-    if (reviewStatusData.length === 0) {
-      reviewStatusData.push({
+    if (reviewStatus.length === 0) {
+      reviewStatus.push({
         name: "No Data",
         value: 1,
         color: "#E5E7EB",
         percentage: 100,
       });
     }
-    if (submissionTypeData.length === 0) {
-      submissionTypeData.push({
+    if (submissionType.length === 0) {
+      submissionType.push({
         name: "No Data",
         value: 1,
         color: "#E5E7EB",
@@ -380,63 +414,104 @@ const DashboardContent: React.FC = () => {
       });
     }
 
-    return { reviewStatusData, submissionTypeData };
+    return { reviewStatus, submissionType };
   };
 
-  // Function to get monthly data for the selected year
-  const getMonthlyData = () => {
-    const yearData = getYearData(selectedYear);
-    return {
-      firstHalf: yearData.submissions.firstHalf.map((value, index) => ({
-        name: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"][index],
-        value,
-      })),
-      secondHalf: yearData.submissions.secondHalf.map((value, index) => ({
-        name: ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][index],
-        value,
-      })),
-    };
-  };
+  // const { reviewStatusData, submissionTypeData } = getChartData();
 
-  const [dashboardData, setDashboardData] = useState({});
+  const [submissionsBar, setSubmissionsBar] = useState({
+    firstHalf: Array(6).fill(1), // January to June
+    secondHalf: Array(6).fill(1), // July to December
+  });
+
+  const [yearlySubmissionsBar, setYearlySubmissionsBar] = useState({
+    firstHalf: Array(6).fill(1), // January to June
+    secondHalf: Array(6).fill(1), // July to December
+  });
+
   const [cardData, setCardData] = useState({});
+  const [reviewStatusData, setReviewStatusData] = useState([
+    {
+      name: "No Data",
+      value: 1,
+      color: "#E5E7EB",
+      percentage: 100,
+    },
+  ]);
+  const [submissionTypeData, setSubmissionTypeData] = useState([
+    {
+      name: "No Data",
+      value: 1,
+      color: "#E5E7EB",
+      percentage: 100,
+    },
+  ]);
 
-  // Function to get card title
-  const getCardTitle = (cardId: string) => {
-    const titles: { [key: string]: string } = {
-      "pre-review": "Pre-Review",
-      "double-blind": "Double-Blind",
-      accepted: "Accepted",
-      published: "Published",
-      rejected: "Rejected",
-      reviewers: "Reviewers",
-      editors: "Editors",
-    };
-    return titles[cardId] || cardId;
-  };
-
-  // Function to handle card expand
-  const handleCardExpand = (cardId: string) => {
-    setSelectedCard(cardId);
-  };
-
-  const { reviewStatusData, submissionTypeData } = getChartData();
+  const [cardDataYearly, setCardDataYearly] = useState({});
+  const [reviewStatusDataYearly, setReviewStatusDataYearly] = useState([
+    {
+      name: "No Data",
+      value: 1,
+      color: "#E5E7EB",
+      percentage: 100,
+    },
+  ]);
+  const [submissionTypeDataYearly, setSubmissionTypeDataYearly] = useState([
+    {
+      name: "No Data",
+      value: 1,
+      color: "#E5E7EB",
+      percentage: 100,
+    },
+  ]);
 
   const fetchDashboardData = async () => {
-    const card: any = await getAnalytics();
-    const data = card.data;
-    console.log("Card Data", data);
-    setDashboardData(data);
+    const date = new Date();
+
+    const { data }: any = await getAnalytics({ year: date.getFullYear(), month: date.getMonth() + 1 });
+    setSubmissionsBar({
+      firstHalf: data.countsByMonth.slice(0, 6),
+      secondHalf: data.countsByMonth.slice(6, 12),
+    });
+
     delete data.statusDistribution;
     delete data.countsByMonth;
     delete data.typeDistribution;
     delete data.totalManuscripts;
+
     setCardData(data);
+
+    const chartStats = getChartData(data);
+    setReviewStatusData(chartStats.reviewStatus);
+    setSubmissionTypeData(chartStats.submissionType);
+  };
+
+  const fetchYearlyDashboardData = async () => {
+    const { data }: any = await getAnalytics({ year: selectedYear });
+    setYearlySubmissionsBar({
+      firstHalf: data.countsByMonth.slice(0, 6),
+      secondHalf: data.countsByMonth.slice(6, 12),
+    });
+
+    delete data.statusDistribution;
+    delete data.countsByMonth;
+    delete data.typeDistribution;
+    delete data.totalManuscripts;
+
+    setCardDataYearly(data);
+
+    const chartStats = getChartData(data);
+    setReviewStatusDataYearly(chartStats.reviewStatus);
+    setSubmissionTypeDataYearly(chartStats.submissionType);
   };
 
   useEffect(() => {
     fetchDashboardData();
   }, []);
+
+  useEffect(() => {
+    fetchYearlyDashboardData();
+  }, [selectedYear]);
 
   return (
     <div className="p-6">
@@ -468,9 +543,9 @@ const DashboardContent: React.FC = () => {
           <h4 className="text-lg font-semibold mb-4">Monthly Submissions (January - June)</h4>
           <div className="h-[400px]">
             <DashboardCharts.BarChart
-              data={yearlySubmissions.firstHalf.map((value, index) => ({
+              data={submissionsBar.firstHalf.map((value, index) => ({
                 name: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"][index],
-                value,
+                value: value,
               }))}
             />
           </div>
@@ -480,9 +555,9 @@ const DashboardContent: React.FC = () => {
           <h4 className="text-lg font-semibold mb-4">Monthly Submissions (July - December)</h4>
           <div className="h-[400px]">
             <DashboardCharts.BarChart
-              data={yearlySubmissions.secondHalf.map((value, index) => ({
+              data={submissionsBar.secondHalf.map((value, index) => ({
                 name: ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][index],
-                value,
+                value: value,
               }))}
             />
           </div>
@@ -507,9 +582,9 @@ const DashboardContent: React.FC = () => {
               <div className="flex items-center space-x-4">
                 <button
                   onClick={() => handleYearChange(false)}
-                  disabled={selectedYear <= 2025}
+                  disabled={selectedYear <= 2024}
                   className={`p-2 rounded-full transition-colors ${
-                    selectedYear <= 2025 ? "text-gray-400 cursor-not-allowed" : "hover:bg-gray-200 text-gray-700"
+                    selectedYear <= 2024 ? "text-gray-400 cursor-not-allowed" : "hover:bg-gray-200 text-gray-700"
                   }`}>
                   <ChevronLeft className="w-6 h-6" />
                 </button>
@@ -524,7 +599,15 @@ const DashboardContent: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-4 gap-4 mb-6">
+            <div className="mb-8">
+              <DashboardCards
+                cardData={cardDataYearly as any}
+                onCardExpand={handleCardExpand}
+                isDirector={isDirectorDashboard}
+              />
+            </div>
+
+            {/* <div className="grid grid-cols-4 gap-4 mb-6">
               {Object.entries(getYearData(selectedYear).stats).map(([key, value]) => (
                 <div key={key} className="bg-gray-50 p-4 rounded-lg">
                   <h4 className="text-sm text-gray-600 mb-1">
@@ -536,19 +619,19 @@ const DashboardContent: React.FC = () => {
                   <p className="text-2xl font-bold">{value}</p>
                 </div>
               ))}
-            </div>
+            </div> */}
 
             <div className="grid grid-cols-2 gap-6 mb-8">
               <div>
                 <h4 className="text-lg font-semibold mb-4">Yearly Review Distribution</h4>
-                <div className="h-[200px]">
-                  <DashboardCharts.PieChart data={getSummaryData(selectedYear).reviewStatus} chartType="RSD" />
+                <div className="h-[300px]">
+                  <DashboardCharts.PieChart data={reviewStatusDataYearly} chartType="RSD" showPercentage={true} />
                 </div>
               </div>
               <div>
                 <h4 className="text-lg font-semibold mb-4">Yearly Submission Status</h4>
-                <div className="h-[200px]">
-                  <DashboardCharts.PieChart data={getSummaryData(selectedYear).submissionStatus} chartType="STD" />
+                <div className="h-[300px]">
+                  <DashboardCharts.PieChart data={submissionTypeDataYearly} chartType="STD" showPercentage={true} />
                 </div>
               </div>
             </div>
@@ -558,7 +641,7 @@ const DashboardContent: React.FC = () => {
                 <h5 className="text-md font-medium mb-4">First Half (January - June)</h5>
                 <div className="h-[400px]">
                   <DashboardCharts.BarChart
-                    data={getYearData(selectedYear).submissions.firstHalf.map((value, index) => ({
+                    data={yearlySubmissionsBar.firstHalf.map((value, index) => ({
                       name: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"][index],
                       value,
                     }))}
@@ -570,7 +653,7 @@ const DashboardContent: React.FC = () => {
                 <h5 className="text-md font-medium mb-4">Second Half (July - December)</h5>
                 <div className="h-[400px]">
                   <DashboardCharts.BarChart
-                    data={getYearData(selectedYear).submissions.secondHalf.map((value, index) => ({
+                    data={yearlySubmissionsBar.secondHalf.map((value, index) => ({
                       name: ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][index],
                       value,
                     }))}
